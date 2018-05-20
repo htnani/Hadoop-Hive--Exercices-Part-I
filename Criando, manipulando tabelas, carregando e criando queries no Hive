@@ -92,4 +92,5 @@ DROP TABLE temp_drivers;
 #Sair do beeline
 !q
 
+#listagem dos arquivos
 hdfs dfs -ls /user/hive/warehouse/
