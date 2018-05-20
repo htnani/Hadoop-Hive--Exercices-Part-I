@@ -1,0 +1,95 @@
+#Via linha de comando na VM Cloudera, submeter bases de dados drivers.csv e timesheet.csv da máquina local no HDFS
+
+#criação do diretorio "drivers" dentro do HDFS
+hdfs dfs -mkdir /user/cloudera/drivers
+
+#copia do arquivo da máquina local para dentro do diretorio criado 
+hdfs dfs -put ~/Documents/drivers.csv drivers
+
+#copia do arquivo da máquina local para dentro do diretorio criado
+hdfs dfs -put ~/Documents/timesheet.csv drivers
+
+#Listagem dos arquivos no diretorio criado
+hdfs dfs -ls drivers
+
+#Verificando o conteúdo dos arquivos
+hdfs dfs -tail drivers/drivers.csv
+
+hdfs dfs -tail drivers/timesheet.csv
+
+# acessar o shell do Hive chamado beeline
+beeline -u jdbc:hive2://quickstart:10000/default -n admin -d org.apache.hive.jdbc.HiveDriver
+
+#Criação database drivers_db
+CREATE DATABASE drivers_db;
+USE drivers_db;
+
+#Criação das tabelas
+CREATE TABLE temp_drivers (col_value STRING);
+CREATE TABLE drivers (driverId INT, name STRING, ssn BIGINT, location STRING, certified STRING, wageplan STRING);
+
+CREATE TABLE temp_timesheet (col_value string);
+CREATE TABLE timesheet (driverId INT, week INT, hours_logged INT , miles_logged INT);
+
+#Verificação tabelas criadas
+show tables;
+
+#Carregamento dos dados para o Hive
+LOAD DATA INPATH '/user/cloudera/drivers/drivers.csv' OVERWRITE INTO TABLE temp_drivers;
+LOAD DATA INPATH '/user/cloudera/drivers/timesheet.csv' OVERWRITE INTO TABLE temp_timesheet;
+
+INSERT OVERWRITE TABLE drivers
+  SELECT
+    regexp_extract(col_value, '^(?:([^,]*),?){1}', 1) driverId,
+    regexp_extract(col_value, '^(?:([^,]*),?){2}', 1) name,
+    regexp_extract(col_value, '^(?:([^,]*),?){3}', 1) ssn,
+    regexp_extract(col_value, '^(?:([^,]*),?){4}', 1) location,
+    regexp_extract(col_value, '^(?:([^,]*),?){5}', 1) certified,
+    regexp_extract(col_value, '^(?:([^,]*),?){6}', 1) wageplan
+  FROM 
+    temp_drivers;
+    
+    
+INSERT OVERWRITE TABLE timesheet
+  SELECT
+    regexp_extract(col_value, '^(?:([^,]*),?){1}', 1) driverId,
+    regexp_extract(col_value, '^(?:([^,]*),?){2}', 1) week,
+    regexp_extract(col_value, '^(?:([^,]*),?){3}', 1) hours_logged,
+    regexp_extract(col_value, '^(?:([^,]*),?){4}', 1) miles_logged
+  FROM temp_timesheet;
+  
+#Criação de queries no Hive
+SELECT * FROM temp_drivers LIMIT 5;
+SELECT * FROM drivers LIMIT 5;
+SELECT * FROM temp_timesheet LIMIT 5;
+SELECT * FROM timesheet LIMIT 5;
+SELECT driverId, sum(hours_logged) as horas, sum(miles_logged) as milhas FROM timesheet GROUP BY driverId;
+
+#Desativação do join automático
+set hive.auto.convert.join=false;
+
+SELECT 
+  d.driverId, d.name, t.total_hours, t.total_miles 
+FROM 
+  drivers d
+JOIN 
+  (SELECT driverId, sum(hours_logged) total_hours, sum(miles_logged) total_miles FROM timesheet GROUP BY driverId ) t
+ON 
+  (d.driverId = t.driverId);
+
+
+SELECT 
+  d.driverId, d.name, t.total_hours, t.total_miles FROM drivers d
+JOIN 
+  (SELECT driverId, sum(hours_logged) total_hours, sum(miles_logged) total_miles FROM timesheet GROUP BY driverId ) t
+ON 
+  (d.driverId = t.driverId) ORDER BY total_hours DESC;
+  
+#Exclução tabelas no Hive
+DROP TABLE temp_drivers;
+
+#Verificação dos arquivos salvos no Hive
+#Sair do beeline
+!q
+
+hdfs dfs -ls /user/hive/warehouse/
